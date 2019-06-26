@@ -1,4 +1,38 @@
 <?php
+/*
+    REQUIRE ID FROM GET
+    JSON INPUT:
+    {
+        "firstName" : "value",
+        "surName" : "value",
+        "emails" : [
+            {
+                "oldEmail" : "value",
+                "email" : "value"
+            },
+            {
+                "oldEmail" : "value",
+                "email" : "value"
+            },
+            ...
+        ],
+        "phoneNumbers" : [
+            {
+                "oldPhone" : "value",
+                "phone" : "value"
+            },
+            {
+                "oldPhone" : "value",
+                "phone" : "value"
+            },
+            ...
+        ]
+    }
+    MUST HAVE EACH VALUE
+    phone and email MUST HAVE AT LEAST ONE VALUE IN ARRAY
+    EACH phone and email MUST HAVE THEIR VALUES
+*/
+
 // required headers
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -17,7 +51,7 @@ include_once '../models/PhoneNumber.php';
 $database = new Database();
 $db = $database->getConnection();
 
-if (!empty($database->error)) {
+if (!empty(array_filter($database->error))) {
     // set response code - 503 service unavailable
     http_response_code(503);
     
@@ -25,86 +59,75 @@ if (!empty($database->error)) {
 }
 
 $contact = new Contact($db);
-$email = new Email($db);
-$phone = new PhoneNumber($db);
 
 $contact->contactId = isset($_GET['id']) ? $_GET['id'] : die();
-$email->contactId = $contact->contactId;
-$phone->contactId = $contact->contactId;
 
 // get posted data
 $data = json_decode(file_get_contents("php://input"));
 
-$data->firstName = empty($data->firstName) ? null:$data->firstName;
-$data->surName = empty($data->surName) ? null:$data->surName;
-$data->email = empty($data->email) ? null:$data->email;
-$data->phone = empty($data->phone) ? null:$data->phone;
+$data = empty($data) ? new StdClass:$data;
 
 $isValid = true;
-if (is_string($data->firstName) && !empty($data->firstName)) {
-    $data->firstName = htmlspecialchars(strip_tags($data->firstName));
-} else {
-    $isValid = false;
-}
 
-if (is_string($data->surName) && !empty($data->surName)) {
-    $data->surName = htmlspecialchars(strip_tags($data->surName));
-} else {
-    $isValid = false;
-}
-
-if (is_array($data->email) && !empty($data->email)) {
-    foreach($data->email as $element) {
-        $element->email = empty($element->email) ? null:$element->email;
-        $element->oldEmail = empty($element->oldEmail) ? null:$element->oldEmail;
-        
-        $isValid = $isValid && (filter_var($element->email, FILTER_VALIDATE_EMAIL) || $element->email == null);
-        $isValid = $isValid && filter_var($element->oldEmail, FILTER_VALIDATE_EMAIL);
+if (!empty($data->emails) && is_array($data->emails)) {
+    foreach($data->emails as $element) {
+        if (!property_exists($element, "oldEmail") || !property_exists($element, "email")) {
+            $isValid = false;
+            break;
+        }
     }
 } else {
     $isValid = false;
 }
 
-if (is_array($data->phone) && !empty($data->phone)) {
-    foreach($data->phone as &$element) {
-        $element->phone = empty($element->phone) ? null:$element->phone;
-        $element->oldPhone = empty($element->oldPhone) ? null:$element->oldPhone;
-        
-        if (is_string($element)) {
-            $element = htmlspecialchars(strip_tags(str_replace(" ", "", $data->phone)));
+if (!empty($data->phoneNumbers) && is_array($data->phoneNumbers)) {
+    foreach($data->phoneNumbers as $element) {
+        if (!property_exists($element, "oldPhone") || !property_exists($element, "phone")) {
+            $isValid = false;
+            break;
         }
-        $isValid = $isValid && (filter_var($element->phone, FILTER_VALIDATE_INT) || $element->phone == null);
-        $isValid = $isValid && filter_var($element->oldPhone, FILTER_VALIDATE_INT);
     }
 } else {
     $isValid = false;
 }
 
 // make sure data is not empty
-if ($isValid) {
+if (
+    !empty($data->firstName) &&
+    !empty($data->surName)
+) {
     // set product property values
     $contact->firstName = $data->firstName;
     $contact->surName = $data->surName;
-    $email->contactId = $contact->contactId;
-    $phone->contactId = $contact->contactId;
-    foreach($data->emails as $e) {
-        $email->oldEmail = $e->oldEmail;
-        $email->email = $e->email;
-        $contact->emails[] = clone $email;
-    }
-    foreach($data->phoneNumbers as $e) {
-        $phone->oldPhone = $e->oldPhone;
-        $phone->phone = $e->phone;
-        $contact->phoneNumbers[] = clone $phone;
+    if (!empty($data->emails) && is_array($data->emails)) {
+        foreach($data->emails as $e) {
+            $email = new Email($db);
+            $email->contactId = $contact->contactId;
+            if (!empty($e->oldEmail)) {
+                $email->oldEmail = $e->oldEmail;
+            }
+            if (!empty($e->email)) {
+                $email->email = $e->email;
+            }
+            $contact->emails[] = $email;
+        }
     }
     
-    array_walk($data->phones, function($element) {
-        $phone->oldPhone = $element->oldPhone;
-        $phone->phone = $element->phone;
-        $contact->phones[] = clone $phone;
-    });
+    if (!empty($data->phoneNumbers) && is_array($data->phoneNumbers)) {
+        foreach($data->phoneNumbers as $e) {
+            $phone = new PhoneNumber($db);
+            $phone->contactId = $contact->contactId;
+            if (!empty($e->oldPhone)) {
+                $phone->oldPhone = $e->oldPhone;
+            }
+            if (!empty($e->phone)) {
+                $phone->phone = $e->phone;
+            }
+            $contact->phoneNumbers[] = $phone;
+        }
+    }
     
-    $contact->validate();
+    $contact->validate(Contact::UPDATE);
     if (!empty($contact->error)) {
         // set response code - 400 bad request
         http_response_code(400);
@@ -115,17 +138,43 @@ if ($isValid) {
     if ($contact->update()) {
         $isError = false;
         foreach($contact->emails as $e) {
-            $isError = $isError || $e->update();
+            $lastWord = "update";
+            if (!empty($e->email) && !empty($e->oldEmail)) {
+                $isError = $isError || !$e->update();
+            } else if (empty($e->oldEmail) && !empty($e->email)) {
+                $isError = $isError || !$e->create();
+                $lastWord = "create";
+            } else if (!empty($e->oldEmail) && empty($e->email)) {
+                $e->email = $e->oldEmail;
+                $isError = $isError || !$e->deleteByEmail();
+                $lastWord = "delete";
+            }
+            if ($isError) {
+                $contact->error[$e->email] = "Email: " . $e->email . " unable to " . $lastWord;
+            }
         }
         foreach($contact->phoneNumbers as $e) {
-            $isError = $isError || $e->update();
+            $lastWord = "update";
+            if (!empty($e->phone) && !empty($e->oldPhone)) {
+                $isError = $isError || !$e->update();
+            } else if (empty($e->oldPhone) && !empty($e->phone)) {
+                $isError = $isError || !$e->create();
+                $lastWord = "create";
+            } else if (!empty($e->oldPhone) && empty($e->phone)) {
+                $e->phone = $e->oldPhone;
+                $isError = $isError || !$e->deleteByPhone();
+                $lastWord = "delete";
+            }
+            if ($isError) {
+                $contact->error[$e->phone] = "Phone Number: " . $e->phone . " unable to " . $lastWord;
+            }
         }
         
         if ($isError) {
             // set response code - 503 service unavailable
             http_response_code(503);
             
-            die(json_encode(array("message" => "Unable to update Phone/Email.")));
+            die(json_encode(array("message" => $contact->error)));
         }
     } else {
         // set response code - 503 service unavailable

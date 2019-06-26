@@ -1,4 +1,15 @@
 <?php
+/*
+JSON INPUT:
+{
+    "firstName" : "value",
+    "surName" : "value",
+    "emails" : ["value1", "value2", ...],
+    "phoneNumbers" : ["value1", "value2", ...]
+}
+MUST HAVE EACH VALUE
+FOR phone AND email MUST HAVE AT LEAST ONE VALUE
+*/
 // required headers
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -17,7 +28,7 @@ include_once '../models/PhoneNumber.php';
 $database = new Database();
 $db = $database->getConnection();
 
-if (!empty($database->error)) {
+if (!empty(array_filter($database->error))) {
     // set response code - 503 service unavailable
     http_response_code(503);
     
@@ -25,65 +36,37 @@ if (!empty($database->error)) {
 }
 
 $contact = new Contact($db);
-$email = new Email($db);
-$phone = new PhoneNumber($db);
 
 // get posted data
 $data = json_decode(file_get_contents("php://input"));
 
-$data->firstName = empty($data->firstName) ? null:$data->firstName;
-$data->surName = empty($data->surName) ? null:$data->surName;
-$data->email = empty($data->email) ? null:$data->email;
-$data->phone = empty($data->phone) ? null:$data->phone;
-
-$isValid = true;
-if (is_string($data->firstName) && !empty($data->firstName)) {
-    $data->firstName = htmlspecialchars(strip_tags($data->firstName));
-} else {
-    $isValid = false;
-}
-
-if (is_string($data->surName) && !empty($data->firstName)) {
-    $data->surName = htmlspecialchars(strip_tags($data->surName));
-} else {
-    $isValid = false;
-}
-
-if (is_array($data->email) && !empty($data->email)) {
-    foreach($data->email as $element) {
-        $isValid = $isValid && filter_var($element, FILTER_VALIDATE_EMAIL);
-    }
-} else {
-    $isValid = false;
-}
-
-if (is_array($data->phone) && !empty($data->phone)) {
-    foreach($data->phone as &$element) {
-        if (is_string($element)) {
-            $element = htmlspecialchars(strip_tags(str_replace(" ", "", $element)));
-        }
-        $isValid = $isValid && filter_var($element, FILTER_VALIDATE_INT);
-    }
-} else {
-    $isValid = false;
-}
+$data = empty($data) ? new StdClass:$data;
 
 // make sure data is not empty
-if ($isValid) {
+if (
+    !empty($data->firstName) &&
+    !empty($data->surName) &&
+    !empty($data->emails) &&
+    !empty($data->phoneNumbers) &&
+    is_array($data->emails) &&
+    is_array($data->phoneNumbers)
+) {
     // set product property values
     $contact->firstName = $data->firstName;
     $contact->surName = $data->surName;
-    foreach($data->email as $e) {
+    foreach($data->emails as $e) {
+        $email = new Email($db);
         $email->email = $e;
-        $contact->emails[] = clone $email;
+        $contact->emails[] = $email;
     }
-    foreach($data->phone as $e) {
+    foreach($data->phoneNumbers as $e) {
+        $phone = new PhoneNumber($db);
         $phone->phone = $e;
-        $contact->phones[] = clone $phone;
+        $contact->phoneNumbers[] = $phone;
     }
     
     // Validate data
-    $contact->validate();
+    $contact->validate(Contact::CREATE);
     if (!empty($contact->error)) {
         // set response code - 400 bad request
         http_response_code(400);
@@ -99,16 +82,23 @@ if ($isValid) {
         foreach($contact->emails as $e) {
             $e->contactId = $contact->contactId;
             $isError = $isError || !$e->create();
+            if ($isError) {
+                $contact->error[$e->email] = "Email: " . $e->email . " unable to register";
+            }
         }
         foreach($contact->phoneNumbers as $e) {
             $e->contactId = $contact->contactId;
             $isError = $isError || !$e->create();
+            if ($isError) {
+                $contact->error[$e->phone] = "Phone number: " . $e->phone . " unable to register";
+            }
         }
         
         if ($isError) {
             // set response code - 503 service unavailable
             http_response_code(503);
-            die(json_encode(array("message" => "Contact was created but was Unable to create some/all of the Email/Phone.")));
+            
+            die(json_encode(array("message" => $contact->error)));
         }
     } else {
         // set response code - 503 service unavailable

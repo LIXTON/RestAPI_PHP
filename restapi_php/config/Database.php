@@ -3,14 +3,14 @@ class Database{
  
     // specify your own database credentials
     private $host = "localhost";
-    private $db_name = "api_db";
+    private $db_name = "rest_api";
     private $username = "root";
-    private $password = "";
+    private $password = "123";
     public $conn;
     public $error;
  
     public function __construct() {
-        $this->errors = array("msg" => "");
+        $this->error = array("msg" => "");
     }
     
     // get the database connection

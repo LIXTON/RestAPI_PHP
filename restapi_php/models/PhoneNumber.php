@@ -1,8 +1,12 @@
 <?php
 class PhoneNumber {
-    private const TABLE_NAME = "PhoneNumbers";
-    private const MAX_SIZE = 15;
-    private conn;
+    const TABLE_NAME = "phonenumbers";
+    const MAX_SIZE = 15;
+    const MIN_SIZE = 10;
+    const CREATE = "create";
+    const UPDATE = "update";
+    const DELETE = "delete";
+    private $conn;
     
     public $error;
     
@@ -17,9 +21,9 @@ class PhoneNumber {
     }
     
     public function create() {
-        $query = "INSERT INTO " . PhoneNumber::TABLE_NAME . " " .
+        $query = "INSERT INTO " . self::TABLE_NAME . " " .
                  "SET " .
-                    "phone = :phone " .
+                    "phone = :phone, " .
                     "contact_id = :contactId";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(":phone", $this->phone);
@@ -27,6 +31,7 @@ class PhoneNumber {
         if ($stmt->execute()) {
             return true;
         }
+        
         return false;
     }
     
@@ -35,13 +40,14 @@ class PhoneNumber {
         $query = "SELECT " . 
                     "contact_id AS contactId, " .
                     "phone " .
-                 "FROM " . PhoneNumber::TABLE_NAME . " " .
-                 "WHERE phone LIKE %:phone% ";
+                 "FROM " . self::TABLE_NAME . " " .
+                 "WHERE phone LIKE :phone ";
+        $phone = "%" . $this->phone . "%";
         if ($this->contactId != null) {
             $query .= "AND contact_id = :contactId";
         }
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(":phone", $this->phone);
+        $stmt->bindParam(":phone", $phone);
         if ($this->contactId != null) {
             $stmt->bindParam(":contactId", $this->contactId);
         }
@@ -55,15 +61,18 @@ class PhoneNumber {
         } else {
             return null;
         }
+        
+        $stmt->closeCursor();
+        
         return $result;
     }
     
     public function update() {
-        $query = "UPDATE " . PhoneNumber::TABLE_NAME . " " .
+        $query = "UPDATE " . self::TABLE_NAME . " " .
                  "SET " .
                     "phone = :phone, " .
                     "contact_id = :contactId " .
-                 "WHERE "
+                 "WHERE " .
                     "phone = :oldPhone";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(":phone", $this->phone);
@@ -72,50 +81,115 @@ class PhoneNumber {
         if ($stmt->execute()) {
             return true;
         }
+        
         return false;
     }
     
     public function deleteByPhone() {
-        $query = "DELETE FROM " . PhoneNumber::TABLE_NAME . " WHERE phone = :phone";
+        $query = "DELETE FROM " . self::TABLE_NAME . " WHERE phone = :phone";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(":phone", $this->phone);
         if ($stmt->execute()) {
             return true;
         }
+        
         return false;
     }
     
     public function deleteByContact() {
-        $query = "DELETE FROM " . PhoneNumber::TABLE_NAME . " WHERE contact_id = :contactId";
+        $query = "DELETE FROM " . self::TABLE_NAME . " WHERE contact_id = :contactId";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(":contactId", $this->contactId);
         if ($stmt->execute()) {
             return true;
         }
+        
         return false;
     }
     
-    public function validate() {
-        if (preg_match("/^\d+$/", $this->contactId) || $this->contactId == null) {
+    private function isOldPhoneCorrect() {
+        $query = "SELECT phone " . 
+                 " FROM " . self::TABLE_NAME . " " . 
+                 "WHERE contact_id = :contactId " . 
+                 "AND phone = :phone";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(":contactId", $this->contactId);
+        $stmt->bindParam(":phone", $this->oldPhone);
+        if ($stmt->execute()) {
+            while($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                return true;
+            }
+        } else {
+            $this->error[] = "Verifictaion of old phone: Something went wrong. Try again later.";
+        }
+        
+        $stmt->closeCursor();
+        
+        return false;
+    }
+    
+    public function validate($scenario = null) {
+        $options = array(
+            "options" => array(
+                "min_range" => 1
+            )
+        );
+        
+        if (filter_var($this->contactId, FILTER_VALIDATE_INT, $options) || $this->contactId == null) {
             $this->contactId = (int)$this->contactId;
         } else {
-            $this->error[] = "ContactId is not an Integer";
+            $this->error[] = "Contact ID is not a positive number.";
         }
         
-        $this->phone = htmlspecialchars(strip_tags(str_replace(" ", "", $this->phone)));
-        if (strlen($this->phone) > PhoneNumber::MAX_SIZE) {
-            $this->error[] = "Email is too big";
-        } else if (!filter_ver($this->phone, FILTER_VALIDATE_INT)) {
-            $this->error[] = "Invalid phone";
+        if ($scenario === self::CREATE || $scenario !== self::UPDATE) {
+            $this->validatePhone();
         }
-        
-        $this->oldPhone = htmlspecialchars(strip_tags(str_replace(" ", "", $this->oldPhone)));
-        if (strlen($this->oldPhone) > PhoneNumber::MAX_SIZE) {
-            $this->error[] = "Previous email is too big";
-        } else if (!filter_ver($this->oldPhone, FILTER_VALIDATE_INT) && $this->oldPhone != null) {
-            $this->error[] = "Invalid previous email";
+        if ($scenario === self::UPDATE) {
+            if (!empty($this->oldPhone)) {
+                $this->validateOldPhone();
+            }
+            if (!empty($this->phone)) {
+                $this->validatePhone();
+            }
         }
         
         return $this->error;
+    }
+    
+    private function validatePhone() {
+        if (is_string($this->phone) || is_numeric($this->phone)) {
+            $id = $this->contactId;
+            $this->contactId = null;
+            $this->phone = htmlspecialchars(strip_tags(str_replace(" ", "", $this->phone)));
+            if (!preg_match('/^\-?\d+$/', $this->phone)) {
+                $this->error[] = "Invalid phone";
+            } else if (strlen($this->phone) > PhoneNumber::MAX_SIZE) {
+                $this->error[] = "Phone Number: " . $this->phone . " is too big";
+            } else if (strlen($this->phone) < PhoneNumber::MIN_SIZE) {
+                $this->error[] = "Phone Number: " . $this->phone . " is too small";
+            } else if (!empty($this->read())) {
+                $this->error[] = "Phone Number: " . $this->phone . " already exist. Use another.";
+            }
+            $this->contactId = $id;
+        } else {
+            $this->error[] = "Invalid phone";
+        }
+    }
+    
+    private function validateOldPhone() {
+        if (is_string($this->oldPhone) || is_numeric($this->oldPhone)) {
+            $this->oldPhone = htmlspecialchars(strip_tags(str_replace(" ", "", $this->oldPhone)));
+            if (!preg_match('/^\-?\d+$/', $this->oldPhone)) {
+                $this->error[] = "Invalid previous phone";
+            } else if (strlen($this->oldPhone) > PhoneNumber::MAX_SIZE) {
+                $this->error[] = "Previous phone: " . $this->oldPhone . " is too big";
+            } else if (strlen($this->oldPhone) < PhoneNumber::MIN_SIZE) {
+                $this->error[] = "Previous phone: " . $this->oldPhone . " is too small";
+            } else if (!$this->isOldPhoneCorrect()) {
+                $this->error[] = "The previous phone number: " . $this->oldPhone . " doesn't match with the contact.";
+            }
+        } else {
+            $this->error[] = "Invalid previous phone";
+        }
     }
 }

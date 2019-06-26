@@ -1,4 +1,6 @@
 <?php
+//ONLY REQUIRE THE ID FROM GET
+
 // required headers
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -17,7 +19,7 @@ include_once '../models/PhoneNumber.php';
 $database = new Database();
 $db = $database->getConnection();
 
-if (!empty($database->error)) {
+if (!empty(array_filter($database->error))) {
     // set response code - 503 service unavailable
     http_response_code(503);
     
@@ -31,7 +33,7 @@ $phone = new PhoneNumber($db);
 // get posted data
 $contact->contactId = isset($_GET['id']) ? $_GET['id'] : die();
 
-if ($contact->readOne()) {
+if (!$contact->readOne()) {
     // set response code - 503 service unavailable
     http_response_code(503);
     
@@ -43,9 +45,9 @@ if ($contact->firstName != null) {
     $email->contactId = $contact->contactId;
     $phone->contactId = $contact->contactId;
     $contact->emails = $email->read();
-    $contact->phones = $phone->read();
+    $contact->phoneNumbers = $phone->read();
     
-    if ($contact->emails == null || $contact->phones == null) {
+    if ($contact->emails == null || $contact->phoneNumbers == null) {
         // set response code - 503 service unavailable
         http_response_code(503);
         
