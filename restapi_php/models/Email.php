@@ -1,6 +1,6 @@
 <?php
 class Email {
-    const TABLE_NAME = "emails";
+    const TABLE_NAME = "Emails";
     const MAX_SIZE = 100;
     const CREATE = "create";
     const UPDATE = "update";

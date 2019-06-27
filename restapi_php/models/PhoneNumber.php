@@ -1,6 +1,6 @@
 <?php
 class PhoneNumber {
-    const TABLE_NAME = "phonenumbers";
+    const TABLE_NAME = "PhoneNumbers";
     const MAX_SIZE = 15;
     const MIN_SIZE = 10;
     const CREATE = "create";

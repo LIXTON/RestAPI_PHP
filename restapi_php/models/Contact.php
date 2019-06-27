@@ -1,6 +1,6 @@
 <?php
 class Contact {
-    const TABLE_NAME = "contacts";
+    const TABLE_NAME = "Contacts";
     const MAX_SIZE_NAME = 100;
     const MIN_SIZE_NAME = 0;
     const CREATE = "create";
@@ -64,8 +64,8 @@ class Contact {
                     "b.email      AS email, " .
                     "c.phone      AS phone " .
                  "FROM " . self::TABLE_NAME . " AS a " . 
-                 "LEFT JOIN emails AS b ON a.contact_id = b.contact_id " .
-                 "LEFT JOIN phonenumbers AS c ON a.contact_id = c.contact_id " . 
+                 "LEFT JOIN Emails AS b ON a.contact_id = b.contact_id " .
+                 "LEFT JOIN PhoneNumbers AS c ON a.contact_id = c.contact_id " . 
                  "WHERE a.first_name LIKE :firstName " .
                  "AND a.sur_name LIKE :surName " .
                  "AND b.email LIKE :email " . 
